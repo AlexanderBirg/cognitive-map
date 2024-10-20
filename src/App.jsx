@@ -105,7 +105,8 @@ function App() {
     
     if (!sourcedNodeElem || !targetNodeElem) return;
 
-    const newEdge = { 
+    const newEdge = {
+      group: "edges",
       data: { 
         id: Date.now(), // Увеличиваем edgeId для уникального id
         source: sourcedNodeElem.data.id, 
@@ -126,6 +127,90 @@ function App() {
       setElements((prevElements) => prevElements.filter(el => el.data.id !== selectedEdgeId));
       setSelectedEdgeId(null);
     }
+  };
+
+  // Функция для получения элемента с максимальным числом в label
+  const getMaxLabelNode = (arr) => {
+    return arr.reduce((maxElement, currentElement) => {
+      // Извлекаем число после 'x'
+      const currentNumber = parseInt(currentElement.data.label.slice(1), 10);
+      const maxNumber = maxElement ? parseInt(maxElement.data.label.slice(1), 10) : -Infinity;
+
+      // Сравниваем текущий элемент с максимальным
+      return currentNumber > maxNumber ? currentElement : maxElement;
+    }, null);
+  };
+
+  // Экспорт графа в JSON
+  const exportToJson = () => {
+    const json = JSON.stringify(elements, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "graph.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Импорт графа из JSON
+  const importFromJson = (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const json = e.target.result;
+      setElements(() => {
+        const newElements = JSON.parse(json);
+        const maxLabelNode = getMaxLabelNode(newElements);
+        setNodeCount(+maxLabelNode.data.label.slice(1));
+
+        return newElements;
+      });
+    };
+    reader.readAsText(file);
+  };
+
+  // Экспорт матрицы узлов
+  const exportMatrix = () => {
+    const nodes = elements
+      .filter(item => item.group === 'nodes')
+      .map(node => ({ id: node.data.id, label: node.data.label }));
+
+    // Создаем заголовок и пустую матрицу
+    const matrix = [];
+    const headerRow = [" "].concat(nodes.map(node => node.label)); // Первая строка с именами узлов
+    matrix.push(headerRow);
+
+    // Создаем пустые строки матрицы для каждого узла
+    nodes.forEach((node) => {
+      const row = Array(nodes.length + 1).fill(""); // Пустая строка
+      row[0] = node.label; // Имя узла в первом столбце
+      matrix.push(row);
+    });
+
+    // Заполняем матрицу значениями из связей (edges)
+    elements
+      .filter(item => item.group === 'edges')
+      .forEach(edge => {
+        const sourceIndex = nodes.findIndex(node => node.id === edge.data.source) + 1;
+        const targetIndex = nodes.findIndex(node => node.id === edge.data.target) + 1;
+
+        if (sourceIndex > 0 && targetIndex > 0) {
+          matrix[sourceIndex][targetIndex] = edge.data.label;
+        }
+      });
+
+    // Преобразование матрицы в CSV
+    const csvContent = "data:text/csv;charset=utf-8," + 
+      matrix.map(row => row.join(",")).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "matrix.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -167,6 +252,31 @@ function App() {
               Удалить связь
             </button>
           </div>
+        </div>
+        <hr className="h-px my-8 bg-gray-200 border-0" />
+        <div className="flex flex-col items-center space-y-4">
+            <button 
+              onClick={exportMatrix} 
+              className="w-1/2 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105"
+            >
+              Экспортировать матрицу
+            </button>
+            <button 
+              onClick={exportToJson} 
+              className="w-1/2 bg-green-500 hover:bg-green-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105"
+            >
+              Экспортировать граф в JSON
+            </button>
+
+            <label className="block text-center">
+              <span className="text-gray-700 font-semibold">Импортировать граф из JSON</span>
+              <input 
+                type="file" 
+                accept=".json" 
+                onChange={importFromJson} 
+                className="block w-full text-sm text-gray-500 mt-2 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </label>
         </div>
 
         {/* Легенда */}
