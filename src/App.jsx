@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import "./App.css";
 
@@ -51,17 +51,16 @@ function App() {
     },
   ];
 
-  const [newNodeName, setNewNodeName] = useState('');
   const [nodeCount, setNodeCount] = useState(0);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const cyRef = useRef(null);
 
   const addNode = () => {
-    if (!newNodeName.trim()) return;
-
     const newNodeId = `${Date.now()}`;
     const newLabel = `x${nodeCount + 1}`;
     const newNode = {
       group: 'nodes',
-      data: { id: newNodeId, name: newNodeName, label: newLabel },
+      data: { id: newNodeId, name: `узел ${newLabel}`, label: newLabel },
       position: { x: 100, y: 100 }
     };
 
@@ -69,7 +68,22 @@ function App() {
     setElements((prevElements) => [...prevElements, newNode]);
 
     setNodeCount(nodeCount + 1);
-    setNewNodeName('');
+  };
+
+  // Функция для изменения имени узла
+  const updateNodeName = (id, newName) => {
+    setElements((prevElements) =>
+      prevElements.map((el) =>
+        el.data.id === id ? { ...el, data: { ...el.data, name: newName } } : el
+      )
+    );
+  };
+
+  const deleteSelectedNode = () => {
+    if (selectedNodeId) {
+      setElements((prevElements) => prevElements.filter(el => el.data.id !== selectedNodeId));
+      setSelectedNodeId(null);
+    }
   };
 
   return (
@@ -79,11 +93,12 @@ function App() {
         {/* Управление */}
         <div className="flex flex-row gap-4">
           <div className="flex flex-col flex-1">
-            <input className="px-4 py-2 mb-2 rounded w-full" type="text" placeholder="Название узла"
-              value={newNodeName}
-              onChange={(e) => setNewNodeName(e.target.value)}
-            />
             <button className="bg-blue-500 text-white px-4 py-2 rounded mb-2 w-full" onClick={addNode}>Добавить узел</button>
+          </div>
+          <div className="flex flex-col flex-1">
+            <button className="bg-red-500 text-white px-4 py-2 rounded mb-2 w-full" onClick={deleteSelectedNode} disabled={!selectedNodeId}>
+              Удалить узел
+            </button>
           </div>
         </div>
 
@@ -97,7 +112,13 @@ function App() {
                 return (
                   <li key={element.data.id} className="flex items-center space-x-2">
                     <span className="text-blue-500">●</span>
-                    <span className="font-medium">{element.data.label}</span>: {element.data.name}
+                    <span className="font-medium">{element.data.label}: </span>
+                    <input
+                      className="border border-gray-300 rounded px-2 py-1 w-full"
+                      type="text"
+                      value={element.data.name}
+                      onChange={(e) => updateNodeName(element.data.id, e.target.value)}
+                    />
                   </li>
                 );
               }
@@ -114,6 +135,16 @@ function App() {
           style={{ width: "100%", height: "100%" }}
           layout={layout}
           stylesheet={stylesheet}
+          cy={(cy) => {
+            cyRef.current = cy;
+            cy.on('select', 'node', (event) => {
+              const node = event.target;
+              setSelectedNodeId(node.id());
+            });
+            cy.on('unselect', 'node', () => {
+              setSelectedNodeId(null);
+            });
+          }}
         />
       </div>
     </div>
