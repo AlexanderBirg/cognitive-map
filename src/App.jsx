@@ -1,6 +1,7 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import "./App.css";
+import ControlPanel from "./Components/ControlPanel/ControlPanel";
 
 function App() {
   const layout = {
@@ -47,10 +48,9 @@ function App() {
       },
     },
     {
-      selector: "edge:selected",
+      selector: "edge.dashed",
       style: {
-        "line-color": "#ef4444",
-        "target-arrow-color": "#ef4444",
+        "line-style": "dashed",
       },
     },
   ];
@@ -61,16 +61,23 @@ function App() {
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
   const [sourcedNode, setSourcedNode] = useState('');
   const [targetNode, setTargetNode] = useState('');
-  const [inputEdgeLabel, setInputEdgeLabel] = useState('');
   const cyRef = useRef(null);
 
+  const [activeButton, setActiveButton] = useState(false);
+  const [edgeStyle, setEdgeStyle] = useState('solid');
+
+  const [showEdgeLabelInput, setShowEdgeLabelInput] = useState(false);
+  const [editingEdgeId, setEditingEdgeId] = useState('');
+  const [editingEdgeLabel, setEditingEdgeLabel] = useState('');
+  const [editingEdgeInputPosition, setEditingEdgeInputPosition] = useState({x: 0, y: 0});
+
   // Функция для добавления узла
-  const addNode = () => {
+  const addNode = (position = { x: 100, y: 100 }) => {
     const newLabel = `x${nodeCount + 1}`;
     const newNode = {
       group: 'nodes',
       data: { id: Date.now(), name: `узел ${newLabel}`, label: newLabel },
-      position: { x: 100, y: 100 }
+      position,
     };
 
     // Обновляем состояние элементов
@@ -96,12 +103,19 @@ function App() {
     }
   };
 
+  const deleteElem = (elemID) => {
+    if (!elemID) return;
+
+    setElements((prevElements) => prevElements.filter(el => el.data.id !== elemID));
+  };
+
   // Функция для добавления связи между узлами
   const addEdge = () => {
-    if (!sourcedNode || !targetNode || !inputEdgeLabel) return;
+    if (!sourcedNode || !targetNode) return;
 
-    const sourcedNodeElem = elements.filter((item) => item.data.label === sourcedNode)[0];
-    const targetNodeElem = elements.filter((item) => item.data.label === targetNode)[0];
+    const sourcedNodeElem = elements.filter((item) => item.data.id === sourcedNode)[0];
+    const targetNodeElem = elements.filter((item) => item.data.id === targetNode)[0];
+    const inputEdgeLabel = edgeStyle === 'solid' ? '+1' : '-1';
     
     if (!sourcedNodeElem || !targetNodeElem) return;
 
@@ -111,14 +125,29 @@ function App() {
         id: Date.now(), // Увеличиваем edgeId для уникального id
         source: sourcedNodeElem.data.id, 
         target: targetNodeElem.data.id, 
-        label: inputEdgeLabel 
-      } 
+        label: inputEdgeLabel,
+      },
+      style: {
+        "line-style": edgeStyle,
+      },
     };
 
     setElements([...elements, newEdge]);
     setSourcedNode('');
     setTargetNode('');
-    setInputEdgeLabel('');
+  };
+
+  const updateEdgeLabel = () => {
+    setElements((prevElements) =>
+      prevElements.map((el) => {
+        if (el.data.id === editingEdgeId) {
+          return { ...el, data: { ...el.data, label: editingEdgeLabel } };
+        }
+        return el;
+      })
+    );
+    setEditingEdgeId('');
+    setEditingEdgeLabel('');
   };
 
   // Функция для удаления выбранного узла
@@ -213,74 +242,103 @@ function App() {
     document.body.removeChild(link);
   };
 
+  // Функция снятия выделения с элемента
+  const unselectElem = (elemID) => {
+    const cy = cyRef.current;
+    const sourcedNodeElement = cy.getElementById(elemID);
+
+    if (sourcedNodeElement) {
+      sourcedNodeElement.unselect();
+    }
+  };
+
+  // тапы по холсту
+  useEffect(() => {
+    const cy = cyRef.current;
+
+    cy.minZoom(0.1);
+    cy.maxZoom(1);
+
+    cy.on('tap', (event) => {
+      const isTapOnBackground = event.target === cy;
+
+      switch (activeButton) {
+        case 'addNode':
+          if (!isTapOnBackground) break;
+
+          addNode(event.position);
+
+          break;
+        case 'addEdge':
+          if (isTapOnBackground) break;
+
+          if (!sourcedNode) {
+            setSourcedNode(event.target.id());
+            break;
+          }
+
+          if (!targetNode) {
+            setTargetNode(event.target.id());
+          }
+
+          break;
+        case 'delete':
+          if (isTapOnBackground) break;
+
+          deleteElem(event.target.id());
+
+          break;
+      }
+    });
+
+    cy.on('select', 'node', (event) => {
+      const node = event.target;
+      setSelectedNodeId(node.id());
+    });
+
+    cy.on('unselect', 'node', () => {
+      setSelectedNodeId(null);
+    });
+
+    cy.on('select', 'edge', (event) => {
+      const edge = event.target;
+      setSelectedEdgeId(edge.id());
+    });
+
+    cy.on('unselect', 'edge', () => {
+      setSelectedEdgeId(null);
+    });
+
+    cy.on('dbltap', 'edge', (event) => {
+      const edge = event.target;
+      setEditingEdgeId(edge.id());
+      setEditingEdgeLabel(edge.data('label'));
+      setEditingEdgeInputPosition(event.position);
+      setShowEdgeLabelInput(true);
+    });
+
+    return () => {
+      cy.off('tap');
+      cy.off('select');
+      cy.off('unselect');
+      cy.off('dbltap');
+    };
+  }, [activeButton, elements, sourcedNode, targetNode]);
+
+  // добавление связи
+  useEffect(() => {
+    if (sourcedNode && targetNode) {
+      unselectElem(targetNode);
+      addEdge();
+    }
+  }, [sourcedNode, targetNode]);
+
   return (
     <div className="flex h-screen">
       {/* Сайдбар */}
       <div className="w-1/4 bg-gray-100 p-4 flex flex-col">
-        {/* Управление */}
-        <div className="flex flex-row gap-4">
-          <div className="flex flex-col flex-1">
-            <button className="bg-blue-500 text-white px-4 py-2 rounded mb-2 w-full" onClick={addNode}>Добавить узел</button>
-          </div>
-          <div className="flex flex-col flex-1">
-            <button className="bg-red-500 text-white px-4 py-2 rounded mb-2 w-full" onClick={deleteSelectedNode} disabled={!selectedNodeId}>
-              Удалить узел
-            </button>
-          </div>
-        </div>
-        <hr className="h-px my-8 bg-gray-200 border-0" />
-        <div className="flex flex-col">
-          <input className="px-4 py-2 mb-2 rounded w-full" type="text" placeholder="Подпись связи"
-            value={inputEdgeLabel}
-            onChange={(e) => setInputEdgeLabel(e.target.value)}
-          />
-          <div className="flex flex-row flex-1 gap-4">
-            <input className="px-4 py-2 mb-2 rounded w-full" type="text" placeholder="ID 1 узла"
-              value={sourcedNode}
-              onChange={(e) => setSourcedNode(e.target.value)}
-            />
-            <input className="px-4 py-2 mb-2 rounded w-full" type="text" placeholder="ID 2 узла"
-              value={targetNode}
-              onChange={(e) => setTargetNode(e.target.value)}
-            />
-          </div>
-          <button className="bg-blue-500 text-white px-4 py-2 rounded mb-2 w-full" onClick={addEdge}>Добавить связь</button>
-        </div>
-        <div className="flex flex-row gap-4">
-          <div className="flex flex-col flex-1">
-            <button className="bg-red-500 text-white px-4 py-2 rounded mb-2 w-full" onClick={deleteSelectedEdge} disabled={!selectedEdgeId}>
-              Удалить связь
-            </button>
-          </div>
-        </div>
-        <hr className="h-px my-8 bg-gray-200 border-0" />
-        <div className="flex flex-col items-center space-y-4">
-            <button 
-              onClick={exportMatrix} 
-              className="w-1/2 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105"
-            >
-              Экспортировать матрицу
-            </button>
-            <button 
-              onClick={exportToJson} 
-              className="w-1/2 bg-green-500 hover:bg-green-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105"
-            >
-              Экспортировать граф в JSON
-            </button>
-
-            <label className="block text-center">
-              <span className="text-gray-700 font-semibold">Импортировать граф из JSON</span>
-              <input 
-                type="file" 
-                accept=".json" 
-                onChange={importFromJson} 
-                className="block w-full text-sm text-gray-500 mt-2 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-            </label>
-        </div>
-
         {/* Легенда */}
-        <div className="flex flex-col h-1/3 mt-auto">
+        <div className="flex flex-col flex-grow mb-8">
           <h2 className="text-xl font-bold mb-4 text-center">Легенда графа</h2>
           <ul className="overflow-y-auto flex-grow bg-gray-50 p-4 rounded-lg shadow-inner space-y-2">
             {elements.map((element) => {
@@ -303,10 +361,59 @@ function App() {
             })}
           </ul>
         </div>
+
+        {/* Экспорт/импорт данных */}
+        <div className="flex flex-col gap-4">
+          <div className="flex gap-4">
+            <button 
+              onClick={exportMatrix} 
+              className="inline-flex flex-1 justify-center bg-yellow-500 hover:bg-yellow-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition duration-300 ease-in-out transform"
+            >
+              Экспортировать матрицу
+            </button>
+            <button 
+              onClick={exportToJson} 
+              className="inline-flex flex-1 justify-center bg-green-500 hover:bg-green-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition duration-300 ease-in-out transform"
+            >
+              Экспортировать граф в JSON
+            </button>
+          </div>
+
+          <div className="flex justify-center">
+            <label className="block text-center">
+              <span className="text-gray-700 font-semibold">Импортировать граф из JSON</span>
+              <input 
+                type="file" 
+                accept=".json" 
+                onChange={importFromJson} 
+                className="block w-full text-sm text-gray-500 mt-2 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* Схема */}
-      <div className="flex-grow">
+      <div className="flex-grow relative">
+        {/* Управление */}
+        <ControlPanel cyRef={cyRef} activeButtonState={setActiveButton} setEdgeStyle={setEdgeStyle} />
+
+
+        {/* Поле для редактирования label связи */}
+        <input
+          className={`absolute z-10 w-8 px-2 py-1 rounded border border-gray-300
+            ${showEdgeLabelInput ? "block" : "hidden"}`}
+          style={{ left: editingEdgeInputPosition.x, top: editingEdgeInputPosition.y }}
+          type="text"
+          value={editingEdgeLabel}
+          onChange={(e) => setEditingEdgeLabel(e.target.value)}
+          onBlur={() => {
+            updateEdgeLabel(); 
+            setShowEdgeLabelInput(false);
+          }}
+        />
+
+        {/* Холст */}
         <CytoscapeComponent
           elements={elements}
           style={{ width: "100%", height: "100%" }}
@@ -314,24 +421,6 @@ function App() {
           stylesheet={stylesheet}
           cy={(cy) => {
             cyRef.current = cy;
-
-            cy.on('select', 'node', (event) => {
-              const node = event.target;
-              setSelectedNodeId(node.id());
-            });
-
-            cy.on('unselect', 'node', () => {
-              setSelectedNodeId(null);
-            });
-
-            cy.on('select', 'edge', (event) => {
-              const edge = event.target;
-              setSelectedEdgeId(edge.id());
-            });
-
-            cy.on('unselect', 'edge', () => {
-              setSelectedEdgeId(null);
-            });
           }}
         />
       </div>
